@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "TabMind",
+  "version": "1.0.0",
+  "description": "Minimalist tab manager with auto-categorization, smart snooze, and browser notifications.",
+  "permissions": ["tabs", "storage", "alarms", "notifications"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TabMind"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}
