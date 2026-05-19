@@ -143,6 +143,15 @@ body.options-body {
   font-variant-numeric: tabular-nums;
 }
 
+.global-actions {
+  padding: 0 16px 10px;
+  flex-shrink: 0;
+}
+
+.global-actions__btn {
+  width: 100%;
+}
+
 .search-bar {
   padding: 0 16px 12px;
   flex-shrink: 0;
@@ -285,6 +294,11 @@ body.options-body {
   line-height: 1;
 }
 
+.btn--compact {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
 .snoozed-section {
   border-top: 1px solid var(--border);
   padding-top: 10px;
@@ -363,18 +377,93 @@ body.options-body {
 
 .category-manage-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
   padding: 10px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
+.category-manage-item__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .category-manage-item__name {
   font-size: 13px;
   font-weight: 500;
+}
+
+.category-domains {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 2px;
+}
+
+.category-domains__hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.domain-chip-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.domain-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  max-width: 100%;
+}
+
+.domain-chip__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.domain-chip__remove {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.domain-chip__remove:hover {
+  color: var(--danger);
+}
+
+.domain-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.domain-add-row__input {
+  flex: 1;
+  min-width: 0;
 }
 
 .add-category-row {

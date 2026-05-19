@@ -21,6 +21,9 @@ const SCAN_PERIOD_MINUTES = 1;
 /** @type {Record<string, string>} */
 let urlCategoryOverrides = {};
 
+/** @type {Record<string, string[]>} categoryId -> hostnames */
+let categoryDomainRules = {};
+
 /** @type {Record<number, number>} */
 let tabActivity = {};
 
@@ -59,7 +62,7 @@ async function initializeDefaultCategoriesIfNeeded() {
       snoozed[id] = Array.isArray(existingSnoozed[id]) ? existingSnoozed[id] : [];
     }
   }
-  await chrome.storage.local.set({ [STORAGE_KEYS.snoozed]: snoozed });
+  await saveSnoozed(snoozed);
 
   const { [STORAGE_KEYS.settings]: settingsStored } = await chrome.storage.local.get(STORAGE_KEYS.settings);
   const thresholds = { ...(settingsStored?.thresholds || {}) };
@@ -317,8 +320,42 @@ async function getSnoozed() {
   return merged;
 }
 
+function countSnoozedEntries(snoozed) {
+  if (!snoozed || typeof snoozed !== 'object') return 0;
+  return Object.values(snoozed).reduce((sum, list) => {
+    if (!Array.isArray(list)) return sum;
+    return sum + list.length;
+  }, 0);
+}
+
+/**
+ * Toolbar badge: total snoozed tabs across categories (visible without opening the popup).
+ */
+async function syncActionBadgeFromSnoozed(snoozed) {
+  const total = countSnoozedEntries(snoozed);
+  const { [STORAGE_KEYS.settings]: stored } = await chrome.storage.local.get(STORAGE_KEYS.settings);
+  const lang = stored?.language === 'ru' ? 'ru' : 'en';
+  try {
+    if (total > 0) {
+      const text = total > 99 ? '99+' : String(total);
+      await chrome.action.setBadgeText({ text });
+      await chrome.action.setBadgeBackgroundColor({ color: '#047857' });
+      await chrome.action.setTitle({
+        title: t(lang, 'actionTitleWithSnoozed', { count: total }),
+      });
+    } else {
+      await chrome.action.setBadgeText({ text: '' });
+      await chrome.action.setBadgeBackgroundColor({ color: '#64748b' });
+      await chrome.action.setTitle({ title: t(lang, 'actionTitleEmpty') });
+    }
+  } catch (err) {
+    console.error('[TabMind] action badge failed', err);
+  }
+}
+
 async function saveSnoozed(snoozed) {
   await chrome.storage.local.set({ [STORAGE_KEYS.snoozed]: snoozed });
+  await syncActionBadgeFromSnoozed(snoozed);
 }
 
 async function loadActivity() {
@@ -335,16 +372,61 @@ async function loadOverrides() {
   urlCategoryOverrides = stored && typeof stored === 'object' ? stored : {};
 }
 
+async function loadDomainRules() {
+  const { [STORAGE_KEYS.domainRules]: stored } = await chrome.storage.local.get(STORAGE_KEYS.domainRules);
+  categoryDomainRules = stored && typeof stored === 'object' ? stored : {};
+}
+
 async function getTabCategory(tab) {
   if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
     return null;
   }
   const categories = await getCategories();
-  return resolveCategoryId(categories, tab.url, tab.title || '', urlCategoryOverrides);
+  return resolveCategoryId(
+    categories,
+    tab.url,
+    tab.title || '',
+    urlCategoryOverrides,
+    categoryDomainRules,
+  );
 }
 
 function touchTab(tabId, timestamp = Date.now()) {
   tabActivity[tabId] = timestamp;
+}
+
+/**
+ * Open Chrome's built-in new tab page before closing the last tab(s), so the browser
+ * does not exit. Call when a snooze would leave zero tabs.
+ */
+async function openDefaultChromeTabBeforeClose() {
+  const candidates = [
+    'chrome://new-tab-page/',
+    'chrome://newtab/',
+    'chrome-search://local-ntp/local-ntp.html',
+  ];
+  for (const url of candidates) {
+    try {
+      await chrome.tabs.create({ url, active: true });
+      return;
+    } catch {
+      /* try next */
+    }
+  }
+  try {
+    await chrome.tabs.create({ active: true });
+  } catch (err) {
+    console.error('[TabMind] Could not open fallback tab', err);
+  }
+}
+
+/**
+ * If the browser somehow has zero tabs after a close, recover (safety net).
+ */
+async function ensureAtLeastOneBrowserTab() {
+  const tabs = await chrome.tabs.query({});
+  if (tabs.length > 0) return;
+  await openDefaultChromeTabBeforeClose();
 }
 
 async function snoozeTab(tab) {
@@ -368,17 +450,35 @@ async function snoozeTab(tab) {
   delete tabActivity[tab.id];
   await persistActivity();
 
+  const openTabs = await chrome.tabs.query({});
+  const otherTabs = openTabs.filter((t) => t.id !== tab.id);
+  if (otherTabs.length === 0) {
+    await openDefaultChromeTabBeforeClose();
+  }
+
   try {
     await chrome.tabs.remove(tab.id);
   } catch {
     return false;
   }
+  await ensureAtLeastOneBrowserTab();
   return true;
 }
 
 async function snoozeTabs(tabs) {
+  const list = (tabs || []).filter((t) => t?.id != null);
+  if (!list.length) return 0;
+
+  const allTabs = await chrome.tabs.query({});
+  const targetIds = new Set(list.map((t) => t.id));
+  const wouldSnoozeEveryOpenTab = allTabs.length > 0
+    && allTabs.every((t) => targetIds.has(t.id));
+  if (wouldSnoozeEveryOpenTab) {
+    await openDefaultChromeTabBeforeClose();
+  }
+
   let count = 0;
-  for (const tab of tabs) {
+  for (const tab of list) {
     if (await snoozeTab(tab)) count += 1;
   }
   return count;
@@ -391,6 +491,18 @@ async function snoozeCategory(categoryId) {
     if (tab.pinned) continue;
     const cat = await getTabCategory(tab);
     if (cat === categoryId) targets.push(tab);
+  }
+  return snoozeTabs(targets);
+}
+
+async function snoozeAllTabs() {
+  const allTabs = await chrome.tabs.query({});
+  const targets = [];
+  for (const tab of allTabs) {
+    if (tab.pinned) continue;
+    const cat = await getTabCategory(tab);
+    if (!cat) continue;
+    targets.push(tab);
   }
   return snoozeTabs(targets);
 }
@@ -480,6 +592,11 @@ async function deleteCategory(categoryId) {
   }
   urlCategoryOverrides = overrides;
   await chrome.storage.local.set({ [STORAGE_KEYS.overrides]: overrides });
+
+  const nextDomainRules = { ...categoryDomainRules };
+  delete nextDomainRules[categoryId];
+  categoryDomainRules = nextDomainRules;
+  await chrome.storage.local.set({ [STORAGE_KEYS.domainRules]: nextDomainRules });
 
   return { ok: true };
 }
@@ -647,6 +764,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await initializeDefaultCategoriesIfNeeded();
   await loadActivity();
   await loadOverrides();
+  await loadDomainRules();
   await ensureScanAlarm();
   await syncNotificationAlarm();
 
@@ -656,14 +774,17 @@ chrome.runtime.onInstalled.addListener(async () => {
     if (tab.id) touchTab(tab.id, now);
   }
   await persistActivity();
+  await getSnoozed().then(syncActionBadgeFromSnoozed);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await initializeDefaultCategoriesIfNeeded();
   await loadActivity();
   await loadOverrides();
+  await loadDomainRules();
   await ensureScanAlarm();
   await syncNotificationAlarm();
+  await getSnoozed().then(syncActionBadgeFromSnoozed);
 });
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
@@ -709,6 +830,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_NAMES.scan) {
     await loadActivity();
     await loadOverrides();
+    await loadDomainRules();
     await scanInactiveTabs();
   } else if (alarm.name === ALARM_NAMES.notification) {
     await sendSnoozedNotification();
@@ -725,6 +847,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes[STORAGE_KEYS.settings]) {
     syncNotificationAlarm();
+    getSnoozed().then(syncActionBadgeFromSnoozed).catch(() => {});
+  }
+  if (changes[STORAGE_KEYS.domainRules]) {
+    categoryDomainRules = changes[STORAGE_KEYS.domainRules].newValue && typeof changes[STORAGE_KEYS.domainRules].newValue === 'object'
+      ? changes[STORAGE_KEYS.domainRules].newValue
+      : {};
   }
 });
 
@@ -735,6 +863,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return buildPopupState();
       case 'SNOOZE_CATEGORY':
         return { count: await snoozeCategory(message.categoryId) };
+      case 'SNOOZE_ALL_TABS':
+        return { count: await snoozeAllTabs() };
       case 'RESTORE_TAB':
         return restoreTab(message.categoryId, message.index);
       case 'RESTORE_ALL_CATEGORY':
@@ -777,8 +907,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 initializeDefaultCategoriesIfNeeded().then(() => {
   loadActivity();
   loadOverrides();
+  loadDomainRules();
   ensureScanAlarm();
-  getSettings().then(() => syncNotificationAlarm());
+  getSettings()
+    .then(() => syncNotificationAlarm())
+    .then(() => getSnoozed())
+    .then(syncActionBadgeFromSnoozed)
+    .catch(() => {});
 });
 
 chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
