@@ -1,11 +1,15 @@
 const {
   STORAGE_KEYS,
   defaultThresholdForCategory,
+  normalizeDomainRuleInput,
+  getCategoryIds,
 } = TabMindShared;
 const { t, displayCategoryName, applyToDocument } = TabMindI18n;
 
 let currentLang = 'en';
 let categoriesCache = [];
+/** @type {Record<string, string[]>} */
+let domainRulesCache = {};
 
 const els = {
   timerGrid: () => document.getElementById('timer-grid'),
@@ -31,6 +35,39 @@ async function loadCategories() {
   const { categories } = await sendMessage('GET_CATEGORIES');
   categoriesCache = categories || [];
   return categoriesCache;
+}
+
+function sanitizeDomainRulesForCategories(categories, rules) {
+  const ids = new Set(getCategoryIds(categories));
+  const out = {};
+  for (const id of ids) {
+    const raw = rules && typeof rules === 'object' ? rules[id] : [];
+    const list = Array.isArray(raw) ? raw : [];
+    const seen = new Set();
+    const cleaned = [];
+    for (const entry of list) {
+      const h = typeof entry === 'string' ? entry.trim().toLowerCase() : '';
+      if (!h || seen.has(h)) continue;
+      seen.add(h);
+      cleaned.push(h);
+    }
+    out[id] = cleaned;
+  }
+  return out;
+}
+
+async function loadDomainRules() {
+  const { [STORAGE_KEYS.domainRules]: stored } = await chrome.storage.local.get(STORAGE_KEYS.domainRules);
+  domainRulesCache = sanitizeDomainRulesForCategories(
+    categoriesCache,
+    stored && typeof stored === 'object' ? stored : {},
+  );
+  return domainRulesCache;
+}
+
+async function persistDomainRules() {
+  domainRulesCache = sanitizeDomainRulesForCategories(categoriesCache, domainRulesCache);
+  await chrome.storage.local.set({ [STORAGE_KEYS.domainRules]: domainRulesCache });
 }
 
 function readScheduleType() {
@@ -76,6 +113,37 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove('visible'), 2200);
 }
 
+async function addDomainToCategory(categoryId, raw) {
+  const host = normalizeDomainRuleInput(raw);
+  if (!host) {
+    showToast(t(currentLang, 'invalidDomain'));
+    return;
+  }
+
+  for (const cid of Object.keys(domainRulesCache)) {
+    if (cid === categoryId) continue;
+    const arr = domainRulesCache[cid] || [];
+    domainRulesCache[cid] = arr.filter((h) => h !== host);
+  }
+
+  const mine = domainRulesCache[categoryId] || [];
+  if (mine.includes(host)) {
+    showToast(t(currentLang, 'domainAlreadyInCategory'));
+    return;
+  }
+
+  domainRulesCache[categoryId] = [...mine, host];
+  await persistDomainRules();
+  await reloadUi();
+}
+
+async function removeDomainFromCategory(categoryId, host) {
+  const arr = domainRulesCache[categoryId] || [];
+  domainRulesCache[categoryId] = arr.filter((h) => h !== host);
+  await persistDomainRules();
+  await reloadUi();
+}
+
 function renderCategoryList(settings) {
   const list = els.categoryList();
   list.replaceChildren();
@@ -85,6 +153,9 @@ function renderCategoryList(settings) {
   for (const category of categoriesCache) {
     const li = document.createElement('li');
     li.className = 'category-manage-item';
+
+    const topRow = document.createElement('div');
+    topRow.className = 'category-manage-item__row';
 
     const name = document.createElement('span');
     name.className = 'category-manage-item__name';
@@ -104,7 +175,71 @@ function renderCategoryList(settings) {
       await reloadUi();
     });
 
-    li.append(name, deleteBtn);
+    topRow.append(name, deleteBtn);
+
+    const domainsBlock = document.createElement('div');
+    domainsBlock.className = 'category-domains';
+
+    const domainsHint = document.createElement('p');
+    domainsHint.className = 'category-domains__hint';
+    domainsHint.textContent = t(currentLang, 'categoryDomainsHint');
+
+    const chips = document.createElement('ul');
+    chips.className = 'domain-chip-list';
+    chips.setAttribute('aria-label', t(currentLang, 'categoryDomainsLabel'));
+
+    const hosts = domainRulesCache[category.id] || [];
+    for (const host of hosts) {
+      const chip = document.createElement('li');
+      chip.className = 'domain-chip';
+
+      const chipText = document.createElement('span');
+      chipText.className = 'domain-chip__text';
+      chipText.textContent = host;
+
+      const removeChip = document.createElement('button');
+      removeChip.type = 'button';
+      removeChip.className = 'domain-chip__remove';
+      removeChip.setAttribute('aria-label', t(currentLang, 'removeDomain'));
+      removeChip.textContent = '×';
+      removeChip.addEventListener('click', () => {
+        removeDomainFromCategory(category.id, host);
+      });
+
+      chip.append(chipText, removeChip);
+      chips.append(chip);
+    }
+
+    const addRow = document.createElement('div');
+    addRow.className = 'domain-add-row';
+
+    const domainInput = document.createElement('input');
+    domainInput.type = 'text';
+    domainInput.className = 'domain-add-row__input';
+    domainInput.setAttribute('autocomplete', 'off');
+    domainInput.setAttribute('spellcheck', 'false');
+    domainInput.placeholder = t(currentLang, 'domainPlaceholder');
+    domainInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addDomainBtn.click();
+      }
+    });
+
+    const addDomainBtn = document.createElement('button');
+    addDomainBtn.type = 'button';
+    addDomainBtn.className = 'btn btn--ghost btn--compact';
+    addDomainBtn.textContent = t(currentLang, 'addDomain');
+    addDomainBtn.addEventListener('click', () => {
+      addDomainToCategory(category.id, domainInput.value);
+      domainInput.value = '';
+      domainInput.focus();
+    });
+
+    addRow.append(domainInput, addDomainBtn);
+
+    domainsBlock.append(domainsHint, chips, addRow);
+    li.append(topRow, domainsBlock);
     list.append(li);
   }
 }
@@ -172,12 +307,14 @@ function readForm(settings) {
 
 async function reloadUi() {
   const settings = await loadSettings();
+  await loadDomainRules();
   renderCategoryList(settings);
   renderTimerInputs(settings);
 }
 
 async function init() {
   const settings = await loadSettings();
+  await loadDomainRules();
   currentLang = settings.language;
   applyToDocument(currentLang);
 
@@ -241,7 +378,8 @@ async function init() {
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes[STORAGE_KEYS.categories]) {
+    if (area !== 'local') return;
+    if (changes[STORAGE_KEYS.categories] || changes[STORAGE_KEYS.domainRules]) {
       reloadUi();
     }
   });
