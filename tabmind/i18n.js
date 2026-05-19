@@ -65,6 +65,8 @@ const TabMindI18n = (() => {
       duplicateSwitch: 'Switch to existing tab',
       duplicateOpenAnyway: 'Open duplicate anyway',
       duplicateUrlHint: 'Already open elsewhere',
+      actionTitleWithSnoozed: 'TabMind — {count} snoozed tab(s). Open to restore.',
+      actionTitleEmpty: 'TabMind — no snoozed tabs',
       categories: {
         work: 'Work',
         entertainment: 'Entertainment',
@@ -139,6 +141,8 @@ const TabMindI18n = (() => {
       duplicateSwitch: 'Перейти к существующей вкладке',
       duplicateOpenAnyway: 'Всё равно открыть дубликат',
       duplicateUrlHint: 'Уже открыта в другой вкладке',
+      actionTitleWithSnoozed: 'TabMind — усыплено вкладок: {count}. Откройте, чтобы вернуть.',
+      actionTitleEmpty: 'TabMind — нет усыпленных вкладок',
       categories: {
         work: 'Работа',
         entertainment: 'Развлечения',
