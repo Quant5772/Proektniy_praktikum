@@ -143,6 +143,15 @@ body.options-body {
   font-variant-numeric: tabular-nums;
 }
 
+.global-actions {
+  padding: 0 16px 10px;
+  flex-shrink: 0;
+}
+
+.global-actions__btn {
+  width: 100%;
+}
+
 .search-bar {
   padding: 0 16px 12px;
   flex-shrink: 0;

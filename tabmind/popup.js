@@ -330,6 +330,15 @@ async function refresh() {
   renderFocusBar(state);
   renderCategories(state);
 
+  const snoozeAllBtn = document.getElementById('snooze-all-tabs');
+  if (snoozeAllBtn && state?.categories) {
+    const n = state.categories.reduce(
+      (sum, c) => sum + (state.openCounts?.[c.id] || 0),
+      0,
+    );
+    snoozeAllBtn.disabled = n === 0;
+  }
+
   if (state?.focusMode?.active && state.focusMode.endsAt > Date.now()) {
     startFocusCountdown();
   } else if (focusTimerId) {
@@ -353,6 +362,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('open-options')?.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
+  });
+
+  document.getElementById('snooze-all-tabs')?.addEventListener('click', async () => {
+    const btn = document.getElementById('snooze-all-tabs');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    await sendMessage('SNOOZE_ALL_TABS');
+    await refresh();
   });
 
   const searchInput = document.getElementById('smart-search');

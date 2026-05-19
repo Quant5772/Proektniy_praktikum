@@ -55,6 +55,7 @@ const TabMindI18n = (() => {
       focusBlocked: 'Blocked during focus mode',
       searchPlaceholder: 'Search open & snoozed tabs…',
       searchNoResults: 'No matching tabs',
+      snoozeAllTabs: 'Snooze all tabs',
       openTabsHeading: 'Open',
       tabOpen: 'Go to tab',
       sectionSmartFeatures: 'Smart features',
@@ -65,6 +66,8 @@ const TabMindI18n = (() => {
       duplicateSwitch: 'Switch to existing tab',
       duplicateOpenAnyway: 'Open duplicate anyway',
       duplicateUrlHint: 'Already open elsewhere',
+      actionTitleWithSnoozed: 'TabMind — {count} snoozed tab(s). Open to restore.',
+      actionTitleEmpty: 'TabMind — no snoozed tabs',
       categories: {
         work: 'Work',
         entertainment: 'Entertainment',
@@ -129,6 +132,7 @@ const TabMindI18n = (() => {
       focusBlocked: 'Заблокировано в режиме фокуса',
       searchPlaceholder: 'Поиск открытых и усыпленных вкладок…',
       searchNoResults: 'Ничего не найдено',
+      snoozeAllTabs: 'Усыпить все вкладки',
       openTabsHeading: 'Открыто',
       tabOpen: 'Перейти',
       sectionSmartFeatures: 'Умные функции',
@@ -139,6 +143,8 @@ const TabMindI18n = (() => {
       duplicateSwitch: 'Перейти к существующей вкладке',
       duplicateOpenAnyway: 'Всё равно открыть дубликат',
       duplicateUrlHint: 'Уже открыта в другой вкладке',
+      actionTitleWithSnoozed: 'TabMind — усыплено вкладок: {count}. Откройте, чтобы вернуть.',
+      actionTitleEmpty: 'TabMind — нет усыпленных вкладок',
       categories: {
         work: 'Работа',
         entertainment: 'Развлечения',
