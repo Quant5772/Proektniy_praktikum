@@ -21,6 +21,9 @@ const SCAN_PERIOD_MINUTES = 1;
 /** @type {Record<string, string>} */
 let urlCategoryOverrides = {};
 
+/** @type {Record<string, string[]>} categoryId -> hostnames */
+let categoryDomainRules = {};
+
 /** @type {Record<number, number>} */
 let tabActivity = {};
 
@@ -335,12 +338,23 @@ async function loadOverrides() {
   urlCategoryOverrides = stored && typeof stored === 'object' ? stored : {};
 }
 
+async function loadDomainRules() {
+  const { [STORAGE_KEYS.domainRules]: stored } = await chrome.storage.local.get(STORAGE_KEYS.domainRules);
+  categoryDomainRules = stored && typeof stored === 'object' ? stored : {};
+}
+
 async function getTabCategory(tab) {
   if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
     return null;
   }
   const categories = await getCategories();
-  return resolveCategoryId(categories, tab.url, tab.title || '', urlCategoryOverrides);
+  return resolveCategoryId(
+    categories,
+    tab.url,
+    tab.title || '',
+    urlCategoryOverrides,
+    categoryDomainRules,
+  );
 }
 
 function touchTab(tabId, timestamp = Date.now()) {
@@ -480,6 +494,11 @@ async function deleteCategory(categoryId) {
   }
   urlCategoryOverrides = overrides;
   await chrome.storage.local.set({ [STORAGE_KEYS.overrides]: overrides });
+
+  const nextDomainRules = { ...categoryDomainRules };
+  delete nextDomainRules[categoryId];
+  categoryDomainRules = nextDomainRules;
+  await chrome.storage.local.set({ [STORAGE_KEYS.domainRules]: nextDomainRules });
 
   return { ok: true };
 }
@@ -647,6 +666,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await initializeDefaultCategoriesIfNeeded();
   await loadActivity();
   await loadOverrides();
+  await loadDomainRules();
   await ensureScanAlarm();
   await syncNotificationAlarm();
 
@@ -662,6 +682,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await initializeDefaultCategoriesIfNeeded();
   await loadActivity();
   await loadOverrides();
+  await loadDomainRules();
   await ensureScanAlarm();
   await syncNotificationAlarm();
 });
@@ -709,6 +730,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_NAMES.scan) {
     await loadActivity();
     await loadOverrides();
+    await loadDomainRules();
     await scanInactiveTabs();
   } else if (alarm.name === ALARM_NAMES.notification) {
     await sendSnoozedNotification();
@@ -725,6 +747,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes[STORAGE_KEYS.settings]) {
     syncNotificationAlarm();
+  }
+  if (changes[STORAGE_KEYS.domainRules]) {
+    categoryDomainRules = changes[STORAGE_KEYS.domainRules].newValue && typeof changes[STORAGE_KEYS.domainRules].newValue === 'object'
+      ? changes[STORAGE_KEYS.domainRules].newValue
+      : {};
   }
 });
 
@@ -777,6 +804,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 initializeDefaultCategoriesIfNeeded().then(() => {
   loadActivity();
   loadOverrides();
+  loadDomainRules();
   ensureScanAlarm();
   getSettings().then(() => syncNotificationAlarm());
 });
