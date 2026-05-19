@@ -395,6 +395,40 @@ function touchTab(tabId, timestamp = Date.now()) {
   tabActivity[tabId] = timestamp;
 }
 
+/**
+ * Open Chrome's built-in new tab page before closing the last tab(s), so the browser
+ * does not exit. Call when a snooze would leave zero tabs.
+ */
+async function openDefaultChromeTabBeforeClose() {
+  const candidates = [
+    'chrome://new-tab-page/',
+    'chrome://newtab/',
+    'chrome-search://local-ntp/local-ntp.html',
+  ];
+  for (const url of candidates) {
+    try {
+      await chrome.tabs.create({ url, active: true });
+      return;
+    } catch {
+      /* try next */
+    }
+  }
+  try {
+    await chrome.tabs.create({ active: true });
+  } catch (err) {
+    console.error('[TabMind] Could not open fallback tab', err);
+  }
+}
+
+/**
+ * If the browser somehow has zero tabs after a close, recover (safety net).
+ */
+async function ensureAtLeastOneBrowserTab() {
+  const tabs = await chrome.tabs.query({});
+  if (tabs.length > 0) return;
+  await openDefaultChromeTabBeforeClose();
+}
+
 async function snoozeTab(tab) {
   const categoryId = await getTabCategory(tab);
   if (!categoryId || !tab.url) return false;
@@ -416,17 +450,35 @@ async function snoozeTab(tab) {
   delete tabActivity[tab.id];
   await persistActivity();
 
+  const openTabs = await chrome.tabs.query({});
+  const otherTabs = openTabs.filter((t) => t.id !== tab.id);
+  if (otherTabs.length === 0) {
+    await openDefaultChromeTabBeforeClose();
+  }
+
   try {
     await chrome.tabs.remove(tab.id);
   } catch {
     return false;
   }
+  await ensureAtLeastOneBrowserTab();
   return true;
 }
 
 async function snoozeTabs(tabs) {
+  const list = (tabs || []).filter((t) => t?.id != null);
+  if (!list.length) return 0;
+
+  const allTabs = await chrome.tabs.query({});
+  const targetIds = new Set(list.map((t) => t.id));
+  const wouldSnoozeEveryOpenTab = allTabs.length > 0
+    && allTabs.every((t) => targetIds.has(t.id));
+  if (wouldSnoozeEveryOpenTab) {
+    await openDefaultChromeTabBeforeClose();
+  }
+
   let count = 0;
-  for (const tab of tabs) {
+  for (const tab of list) {
     if (await snoozeTab(tab)) count += 1;
   }
   return count;
@@ -439,6 +491,18 @@ async function snoozeCategory(categoryId) {
     if (tab.pinned) continue;
     const cat = await getTabCategory(tab);
     if (cat === categoryId) targets.push(tab);
+  }
+  return snoozeTabs(targets);
+}
+
+async function snoozeAllTabs() {
+  const allTabs = await chrome.tabs.query({});
+  const targets = [];
+  for (const tab of allTabs) {
+    if (tab.pinned) continue;
+    const cat = await getTabCategory(tab);
+    if (!cat) continue;
+    targets.push(tab);
   }
   return snoozeTabs(targets);
 }
@@ -790,11 +854,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
       ? changes[STORAGE_KEYS.domainRules].newValue
       : {};
   }
-  if (changes[STORAGE_KEYS.domainRules]) {
-    categoryDomainRules = changes[STORAGE_KEYS.domainRules].newValue && typeof changes[STORAGE_KEYS.domainRules].newValue === 'object'
-      ? changes[STORAGE_KEYS.domainRules].newValue
-      : {};
-  }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -804,6 +863,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return buildPopupState();
       case 'SNOOZE_CATEGORY':
         return { count: await snoozeCategory(message.categoryId) };
+      case 'SNOOZE_ALL_TABS':
+        return { count: await snoozeAllTabs() };
       case 'RESTORE_TAB':
         return restoreTab(message.categoryId, message.index);
       case 'RESTORE_ALL_CATEGORY':
