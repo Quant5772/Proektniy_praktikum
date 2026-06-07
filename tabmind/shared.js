@@ -79,59 +79,52 @@ const TabMindShared = (() => {
     return id;
   }
 
-  function classifyUrlDefaultKey(url, title) {
+function classifyUrlDefaultKey(url, title) {
     const haystack = `${url || ''} ${title || ''}`.toLowerCase();
 
     const rules = [
-      {
-        key: 'finance',
-        patterns: [
-          'paypal', 'stripe', 'bank', 'chase.com', 'wellsfargo', 'coinbase',
-          'binance', 'robinhood', 'fidelity', 'schwab', 'mint.com', 'ynab',
-          'finance.yahoo', 'investing.com', 'bloomberg', 'tradingview',
-        ],
-      },
-      {
-        key: 'shopping',
-        patterns: [
-          'amazon.', 'ebay.', 'etsy.com', 'shopify', 'aliexpress', 'walmart',
-          'target.com', 'bestbuy', 'ikea.', 'zalando', 'ozon.', 'wildberries',
-          'checkout', 'shop.',
-        ],
-      },
-      {
-        key: 'entertainment',
-        patterns: [
-          'youtube.com', 'netflix', 'twitch.tv', 'spotify', 'soundcloud',
-          'tiktok', 'instagram.com', 'twitter.com', 'x.com',
-          'facebook.com', 'steamcommunity', 'discord.com/channels',
-          'hulu', 'disneyplus', 'primevideo',
-        ],
-      },
-      {
-        key: 'readLater',
-        patterns: [
-          'medium.com', 'substack', 'pocket', 'readwise', 'feedly',
-          'habr.com', 'dev.to', 'blog.', 'wikipedia.org',
-        ],
-      },
-      {
-        key: 'education',
-        patterns: [
-          'stackoverflow', 'stackexchange', 'github.com', 'gitlab',
-          'developer.mozilla', 'coursera', 'udemy', 'khanacademy', 'leetcode',
-          'freecodecamp', 'w3schools', 'npmjs', 'arxiv.org',
-        ],
-      },
-      {
-        key: 'work',
-        patterns: [
-          'mail.google', 'outlook.', 'office.com', 'teams.microsoft', 'slack.com',
-          'notion.so', 'asana', 'trello', 'jira.', 'figma.com',
-          'docs.google', 'drive.google', 'calendar.google',
-          'linkedin.com', 'zoom.us', 'meet.google',
-        ],
-      },
+        {
+            key: 'finance',
+            patterns: [
+                'sberbank', 'sber.', 'tbank', 'tinkoff', 'vtb', 'alfabank', 'alfa-bank',
+                'yoomoney', 'moex', 'rbc.ru', 'banki.ru', 'finam', 'bcs-express'
+            ],
+        },
+        {
+            key: 'shopping',
+            patterns: [
+                'ozon.', 'wildberries', 'avito', 'market.yandex', 'megamarket',
+                'lamoda', 'dns-shop', 'citilink', 'aliexpress.ru', 'sbermarket'
+            ],
+        },
+        {
+            key: 'entertainment',
+            patterns: [
+                'vk.com', 'vkvideo', 'ok.ru', 'rutube', 'kinopoisk', 'ivi.ru',
+                'okko', 'music.yandex', 'zvuk', 'pikabu', 'yaplakal', 'smotrim.ru'
+            ],
+        },
+        {
+            key: 'readLater',
+            patterns: [
+                'habr.com', 'vc.ru', 'dzen.ru', 'tproger', 'ixbt', 'livejournal'
+            ],
+        },
+        {
+            key: 'education',
+            patterns: [
+                'stepik', 'skillbox', 'geekbrains', 'netology', 'practicum.yandex',
+                'gitverse', 'gitflic', 'foxford', 'intuit.ru'
+            ],
+        },
+        {
+            key: 'work',
+            patterns: [
+                'mail.ru', 'yandex.ru', 'disk.yandex', 'docs.yandex', 'calendar.yandex',
+                'telemost', 'bitrix24', 'amocrm', 'kaiten', 'weeek', 'yonote',
+                'vk teams', 'compass'
+            ],
+        },
     ];
 
     for (const rule of rules) {
