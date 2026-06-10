@@ -637,89 +637,125 @@ async function scanInactiveTabs() {
   await persistActivity();
 }
 
-function buildNotificationBody(categories, snoozed, lang) {
-  const lines = [];
-  for (const category of categories) {
-    const count = (snoozed[category.id] || []).length;
-    if (count > 0) {
-      lines.push(t(lang, 'notificationCategoryLine', {
-        name: displayCategoryName(lang, category),
-        count,
-      }));
-    }
-  }
-  if (!lines.length) return t(lang, 'notificationEmpty');
 
-  const maxLines = 6;
-  if (lines.length > maxLines) {
-    const visible = lines.slice(0, maxLines);
-    visible.push(t(lang, 'notificationMore', { count: lines.length - maxLines }));
-    return visible.join('\n');
-  }
-  return lines.join('\n');
+function buildNotificationBody(categories, snoozed, lang) {
+    const lines = [];
+    for (const category of categories) {
+        const count = (snoozed[category.id] || []).length;
+        if (count > 0) {
+            lines.push(t(lang, 'notificationCategoryLine', {
+                name: displayCategoryName(lang, category),
+                count,
+            }));
+        }
+    }
+    if (!lines.length) return t(lang, 'notificationEmpty');
+
+    const maxLines = 6;
+    if (lines.length > maxLines) {
+        const visible = lines.slice(0, maxLines);
+        visible.push(t(lang, 'notificationMore', { count: lines.length - maxLines }));
+        return visible.join('\n');
+    }
+    return lines.join('\n');
 }
 
 async function restoreAllSnoozedTabs() {
-  const categories = await getCategories();
-  for (const category of categories) {
-    await restoreAllCategory(category.id);
-  }
+    const categories = await getCategories();
+    for (const category of categories) {
+        await restoreAllCategory(category.id);
+    }
 }
 
 async function sendSnoozedNotification() {
-  const settings = await getSettings();
-  if (!settings.notificationsEnabled) return;
+    const settings = await getSettings();
+    if (!settings.notificationsEnabled) return;
 
-  const [categories, snoozed] = await Promise.all([getCategories(), getSnoozed()]);
-  const lang = settings.language === 'ru' ? 'ru' : 'en';
-  const total = categories.reduce(
-    (sum, category) => sum + (snoozed[category.id]?.length || 0),
-    0,
-  );
-  if (total === 0) return;
+    const [categories, snoozed] = await Promise.all([getCategories(), getSnoozed()]);
+    const lang = settings.language === 'ru' ? 'ru' : 'en';
+    const total = categories.reduce(
+        (sum, category) => sum + (snoozed[category.id]?.length || 0),
+        0,
+    );
+    if (total === 0) return;
 
-  const notificationId = `tabmind-snoozed-${Date.now()}`;
-  const message = buildNotificationBody(categories, snoozed, lang);
+    const notificationId = `tabmind-snoozed-${Date.now()}`;
+    const message = buildNotificationBody(categories, snoozed, lang);
 
-  try {
-    await chrome.notifications.create(notificationId, {
-      type: 'basic',
-      title: t(lang, 'notificationTitle'),
-      message,
-      priority: 2,
-      requireInteraction: true,
-      buttons: [
-        { title: t(lang, 'notificationRestore') },
-        { title: t(lang, 'notificationIgnore') },
-      ],
-    });
-  } catch (err) {
-    console.error('[TabMind] Notification failed:', err);
-  }
+    try {
+        await chrome.notifications.create(notificationId, {
+            type: 'basic',
+            iconUrl: 'icons/icon128.png',
+            title: t(lang, 'notificationTitle'),
+            message,
+            priority: 2,
+            requireInteraction: true,
+            buttons: [
+                { title: t(lang, 'notificationRestore') },
+                { title: t(lang, 'notificationIgnore') },
+            ],
+        });
+    } catch (err) {
+        console.error('[TabMind] Notification failed:', err);
+    }
 }
 
 async function syncNotificationAlarm() {
-  const settings = await getSettings();
-  await chrome.alarms.clear(ALARM_NAMES.notification);
-  await chrome.alarms.clear('tabmind_webhook_reminder');
+    const settings = await getSettings();
+    await chrome.alarms.clear(ALARM_NAMES.notification);
+    await chrome.alarms.clear('tabmind_webhook_reminder');
 
-  if (!settings.notificationsEnabled) return;
+    if (!settings.notificationsEnabled) return;
 
-  if (settings.notificationScheduleType === 'daily') {
+    if (settings.notificationScheduleType === 'daily') {
+        chrome.alarms.create(ALARM_NAMES.notification, {
+            when: getNextDailyAlarmMs(settings.notificationTime),
+        });
+        return;
+    }
+
+    const period = Math.max(
+        0.25,
+        Number(settings.notificationIntervalHours) || 24,
+    );
     chrome.alarms.create(ALARM_NAMES.notification, {
-      when: getNextDailyAlarmMs(settings.notificationTime),
+        periodInMinutes: period * 60,
     });
-    return;
-  }
-
-  const period = Math.max(
-    0.25,
-    Number(settings.notificationIntervalHours) || 24,
-  );
-  chrome.alarms.create(ALARM_NAMES.notification, {
-    periodInMinutes: period * 60,
-  });
 }
+
+
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name === ALARM_NAMES.scan) {
+        await loadActivity();
+        await loadOverrides();
+        await loadDomainRules();
+        await scanInactiveTabs();
+    } else if (alarm.name === ALARM_NAMES.notification) {
+        await sendSnoozedNotification();
+        const settings = await getSettings();
+        if (settings.notificationScheduleType === 'daily') {
+            await syncNotificationAlarm();
+        }
+    } else if (alarm.name === ALARM_NAMES.focus) {
+        await endFocusMode();
+    }
+});
+
+chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
+    if (!notificationId.startsWith('tabmind-snoozed-')) return;
+
+    if (buttonIndex === 0) {
+        await restoreAllSnoozedTabs();
+    }
+    chrome.notifications.clear(notificationId);
+});
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+    if (notificationId.startsWith('tabmind-snoozed-')) {
+        chrome.notifications.clear(notificationId);
+    }
+});
 
 async function ensureScanAlarm() {
   const existing = await chrome.alarms.get(ALARM_NAMES.scan);
@@ -759,8 +795,6 @@ async function buildPopupState() {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  // First install: seed 6 baseline categories when storage is empty.
-  // Updates/reloads with existing categories are left untouched (user edits preserved).
   await initializeDefaultCategoriesIfNeeded();
   await loadActivity();
   await loadOverrides();
